@@ -67,7 +67,6 @@ void Board::setupFen(const std::string& fen)
     std::string piecePlacement, activeColor, castling, enPassant;
     ss >> piecePlacement >> activeColor >> castling >> enPassant;
 
-    // 1. Piece placement
     int rank = 7; // Rank 8 (index 7)
     int file = 0; // File 'a' (index 0)
 
@@ -105,7 +104,6 @@ void Board::setupFen(const std::string& fen)
         }
     }
 
-    // 2. Active color
     if (activeColor == "w")
     {
         sideToMove = Color::White;
@@ -115,7 +113,6 @@ void Board::setupFen(const std::string& fen)
         sideToMove = Color::Black;
     }
 
-    // 3. Castling rights
     castlingRights = 0;
     if (castling != "-")
     {
@@ -128,7 +125,6 @@ void Board::setupFen(const std::string& fen)
         }
     }
 
-    // 4. En-passant target square
     if (enPassant != "-" && enPassant.length() >= 2)
     {
         int fileIdx = enPassant[0] - 'a';
@@ -136,7 +132,6 @@ void Board::setupFen(const std::string& fen)
         enPassantSquare = rankIdx * 8 + fileIdx;
     }
 
-    // 5. Update occupancies
     updateOccupancies();
 
     zobristKey = Zobrist::computeFullKey(*this);
@@ -144,20 +139,17 @@ void Board::setupFen(const std::string& fen)
 
 void Board::setStartingPosition()
 {
-    // Clear all piece bitboards
     for (int i = 0; i < static_cast<int>(Piece::Count); ++i)
     {
         pieces[i] = 0;
     }
 
-    // White pawns: rank 2 -> squares 8-15
     for (int file = 0; file < 8; ++file)
     {
         setBit(pieces[static_cast<int>(Piece::WhitePawn)], 8 + file);
         setBit(pieces[static_cast<int>(Piece::BlackPawn)], 48 + file);
     }
 
-    // White pieces
     setBit(pieces[static_cast<int>(Piece::WhiteRook)], 0);
     setBit(pieces[static_cast<int>(Piece::WhiteRook)], 7);
     setBit(pieces[static_cast<int>(Piece::WhiteKnight)], 1);
@@ -167,7 +159,6 @@ void Board::setStartingPosition()
     setBit(pieces[static_cast<int>(Piece::WhiteQueen)], 3);
     setBit(pieces[static_cast<int>(Piece::WhiteKing)], 4);
 
-    // Black pieces
     setBit(pieces[static_cast<int>(Piece::BlackRook)], 56);
     setBit(pieces[static_cast<int>(Piece::BlackRook)], 63);
     setBit(pieces[static_cast<int>(Piece::BlackKnight)], 57);
@@ -272,7 +263,6 @@ UndoState Board::makeMove(Move move)
         zobristKey ^= Zobrist::enPassantKeys[enPassantSquare % 8];
     }
 
-    // Remove old castling rights key
     zobristKey ^= Zobrist::castlingKeys[castlingRights];
 
     int from = getMoveFrom(move);
@@ -280,7 +270,6 @@ UndoState Board::makeMove(Move move)
     MoveFlag flags = getMoveFlags(move);
     Piece movingPiece = getPieceAt(from);
 
-    // 1. Normal capture (non-en-passant)
     if (isMoveCapture(move) && flags != FlagEnPassant)
     {
         undo.capturedPiece = getPieceAt(to);
@@ -291,11 +280,9 @@ UndoState Board::makeMove(Move move)
         }
     }
 
-    // 2. Move the moving piece from source square
     clearBit(pieces[static_cast<int>(movingPiece)], from);
     zobristKey ^= Zobrist::pieceKeys[static_cast<int>(movingPiece)][from];
 
-    // 3. Place piece on destination square (or promoted piece if promotion)
     if (isMovePromotion(move))
     {
         Piece promotedPiece;
@@ -328,7 +315,7 @@ UndoState Board::makeMove(Move move)
         zobristKey ^= Zobrist::pieceKeys[static_cast<int>(movingPiece)][to];
     }
 
-    // 4. Special move handling: Castling & En Passant
+    // Special move handling: Castling & En Passant
     if (flags == FlagKingCastle)
     {
         if (sideToMove == Color::White)
@@ -387,7 +374,6 @@ UndoState Board::makeMove(Move move)
         }
     }
 
-    // 5. Update en-passant square
     enPassantSquare = -1;
     if (flags == FlagDoublePawnPush)
     {
@@ -395,11 +381,9 @@ UndoState Board::makeMove(Move move)
         zobristKey ^= Zobrist::enPassantKeys[enPassantSquare % 8];
     }
 
-    // 6. Update castling rights
     castlingRights &= castlingRightsMask[from] & castlingRightsMask[to];
     zobristKey ^= Zobrist::castlingKeys[castlingRights];
 
-    // 7. Toggle side to move & update occupancies
     sideToMove = (sideToMove == Color::White) ? Color::Black : Color::White;
     zobristKey ^= Zobrist::sideKey;
     updateOccupancies();
@@ -412,10 +396,8 @@ void Board::unmakeMove(Move move, const UndoState& undo)
     // O(1) state restore for Zobrist hashing
     zobristKey = undo.zobristKey;
 
-    // 1. Toggle side to move back
     sideToMove = (sideToMove == Color::White) ? Color::Black : Color::White;
 
-    // 2. Restore castling rights & en-passant square
     castlingRights = undo.castlingRights;
     enPassantSquare = undo.enPassantSquare;
 
@@ -424,24 +406,19 @@ void Board::unmakeMove(Move move, const UndoState& undo)
     MoveFlag flags = getMoveFlags(move);
     Piece movingPiece = getPieceAt(to);
 
-    // 3. Revert promotions or normal piece placement
     if (isMovePromotion(move))
     {
-        // Remove promoted piece from `to` square
         clearBit(pieces[static_cast<int>(movingPiece)], to);
 
-        // Restore original Pawn on `from` square
         Piece pawnPiece = (sideToMove == Color::White) ? Piece::WhitePawn : Piece::BlackPawn;
         setBit(pieces[static_cast<int>(pawnPiece)], from);
     }
     else
     {
-        // Move piece back from `to` to `from`
         clearBit(pieces[static_cast<int>(movingPiece)], to);
         setBit(pieces[static_cast<int>(movingPiece)], from);
     }
 
-    // 4. Restore captures
     if (flags == FlagEnPassant)
     {
         if (sideToMove == Color::White)
@@ -460,7 +437,6 @@ void Board::unmakeMove(Move move, const UndoState& undo)
         setBit(pieces[static_cast<int>(undo.capturedPiece)], to);
     }
 
-    // 5. Revert Castling Rook moves
     if (flags == FlagKingCastle)
     {
         if (sideToMove == Color::White)
@@ -488,7 +464,6 @@ void Board::unmakeMove(Move move, const UndoState& undo)
         }
     }
 
-    // 6. Recalculate occupancies
     updateOccupancies();
 }
 
@@ -496,7 +471,7 @@ void Board::unmakeMove(Move move, const UndoState& undo)
 
 bool Board::isSquareAttacked(int square, Color attackerColor) const
 {
-    // 1. Pawn Attacks
+    // Pawn Attacks
     if (attackerColor == Color::White)
     {
         if (getPawnAttacks(1, square) & pieces[static_cast<int>(Piece::WhitePawn)])
@@ -508,24 +483,24 @@ bool Board::isSquareAttacked(int square, Color attackerColor) const
             return true;
     }
 
-    // 2. Knight Attacks
+    // Knight Attacks
     Bitboard attackerKnights = (attackerColor == Color::White) ? pieces[static_cast<int>(Piece::WhiteKnight)] : pieces[static_cast<int>(Piece::BlackKnight)];
     if (getKnightAttacks(square) & attackerKnights)
         return true;
 
-    // 3. King Attacks
+    // King Attacks
     Bitboard attackerKing = (attackerColor == Color::White) ? pieces[static_cast<int>(Piece::WhiteKing)] : pieces[static_cast<int>(Piece::BlackKing)];
     if (getKingAttacks(square) & attackerKing)
         return true;
 
-    // 4. Bishop & Queen Attacks (Diagonal)
+    // Bishop & Queen Attacks (Diagonal)
     Bitboard attackerBishopsQueens = (attackerColor == Color::White) ?
         (pieces[static_cast<int>(Piece::WhiteBishop)] | pieces[static_cast<int>(Piece::WhiteQueen)]) :
         (pieces[static_cast<int>(Piece::BlackBishop)] | pieces[static_cast<int>(Piece::BlackQueen)]);
     if (getBishopAttacks(square, occupancy) & attackerBishopsQueens)
         return true;
 
-    // 5. Rook & Queen Attacks (Straight)
+    // Rook & Queen Attacks (Straight)
     Bitboard attackerRooksQueens = (attackerColor == Color::White) ?
         (pieces[static_cast<int>(Piece::WhiteRook)] | pieces[static_cast<int>(Piece::WhiteQueen)]) :
         (pieces[static_cast<int>(Piece::BlackRook)] | pieces[static_cast<int>(Piece::BlackQueen)]);
@@ -554,7 +529,6 @@ std::vector<Move> Board::generatePseudoLegalMoves() const
     Bitboard ownOccupancy = (sideToMove == Color::White) ? whiteOccupancy : blackOccupancy;
     Bitboard enemyOccupancy = (sideToMove == Color::White) ? blackOccupancy : whiteOccupancy;
 
-    // 1. Pawn Moves
     int pawnEnumIdx = (sideToMove == Color::White) ? static_cast<int>(Piece::WhitePawn) : static_cast<int>(Piece::BlackPawn);
     Bitboard pawns = pieces[pawnEnumIdx];
 
@@ -567,11 +541,10 @@ std::vector<Move> Board::generatePseudoLegalMoves() const
 
         if (sideToMove == Color::White)
         {
-            // Single Push
             int toSq = fromSq + 8;
             if (!getBit(occupancy, toSq))
             {
-                if (toSq >= 56) // Rank 8 Promotion
+                if (toSq >= 56)
                 {
                     moves.push_back(encodeMove(fromSq, toSq, FlagQueenProm));
                     moves.push_back(encodeMove(fromSq, toSq, FlagRookProm));
@@ -582,7 +555,6 @@ std::vector<Move> Board::generatePseudoLegalMoves() const
                 {
                     moves.push_back(encodeMove(fromSq, toSq, FlagQuiet));
 
-                    // Double Push (Rank 2 -> Rank 4)
                     if (rank == 1)
                     {
                         int doublePushSq = fromSq + 16;
@@ -685,7 +657,6 @@ std::vector<Move> Board::generatePseudoLegalMoves() const
         }
     }
 
-    // 2. Knight Moves
     int knightIdx = (sideToMove == Color::White) ? static_cast<int>(Piece::WhiteKnight) : static_cast<int>(Piece::BlackKnight);
     Bitboard knights = pieces[knightIdx];
     while (knights)
@@ -706,7 +677,6 @@ std::vector<Move> Board::generatePseudoLegalMoves() const
         }
     }
 
-    // 3. Bishop Moves
     int bishopIdx = (sideToMove == Color::White) ? static_cast<int>(Piece::WhiteBishop) : static_cast<int>(Piece::BlackBishop);
     Bitboard bishops = pieces[bishopIdx];
     while (bishops)
@@ -727,7 +697,6 @@ std::vector<Move> Board::generatePseudoLegalMoves() const
         }
     }
 
-    // 4. Rook Moves
     int rookIdx = (sideToMove == Color::White) ? static_cast<int>(Piece::WhiteRook) : static_cast<int>(Piece::BlackRook);
     Bitboard rooks = pieces[rookIdx];
     while (rooks)
@@ -748,7 +717,6 @@ std::vector<Move> Board::generatePseudoLegalMoves() const
         }
     }
 
-    // 5. Queen Moves
     int queenIdx = (sideToMove == Color::White) ? static_cast<int>(Piece::WhiteQueen) : static_cast<int>(Piece::BlackQueen);
     Bitboard queens = pieces[queenIdx];
     while (queens)
@@ -769,7 +737,6 @@ std::vector<Move> Board::generatePseudoLegalMoves() const
         }
     }
 
-    // 6. King Moves & Castling
     int kingIdx = (sideToMove == Color::White) ? static_cast<int>(Piece::WhiteKing) : static_cast<int>(Piece::BlackKing);
     Bitboard kingBb = pieces[kingIdx];
     if (kingBb)
@@ -876,9 +843,7 @@ std::vector<Move> Board::generateLegalMoves()
     return legalMoves;
 }
 
-// ============================================================================
 // STATIC EVALUATION & PIECE-SQUARE TABLES (PST)
-// ============================================================================
 
 static const int pawnPST[64] = {
      0,  0,  0,  0,  0,  0,  0,  0,
@@ -958,7 +923,6 @@ int Board::evaluate() const
     constexpr int QUEEN_VAL  = 900;
     constexpr int KING_VAL   = 20000;
 
-    // 1. Pawns
     Bitboard wPawns = pieces[static_cast<int>(Piece::WhitePawn)];
     while (wPawns) {
         int sq = __builtin_ctzll(wPawns);
@@ -972,7 +936,6 @@ int Board::evaluate() const
         blackScore += PAWN_VAL + pawnPST[sq ^ 56];
     }
 
-    // 2. Knights
     Bitboard wKnights = pieces[static_cast<int>(Piece::WhiteKnight)];
     while (wKnights) {
         int sq = __builtin_ctzll(wKnights);
@@ -986,7 +949,6 @@ int Board::evaluate() const
         blackScore += KNIGHT_VAL + knightPST[sq ^ 56];
     }
 
-    // 3. Bishops
     Bitboard wBishops = pieces[static_cast<int>(Piece::WhiteBishop)];
     while (wBishops) {
         int sq = __builtin_ctzll(wBishops);
@@ -1000,7 +962,6 @@ int Board::evaluate() const
         blackScore += BISHOP_VAL + bishopPST[sq ^ 56];
     }
 
-    // 4. Rooks
     Bitboard wRooks = pieces[static_cast<int>(Piece::WhiteRook)];
     while (wRooks) {
         int sq = __builtin_ctzll(wRooks);
@@ -1014,7 +975,6 @@ int Board::evaluate() const
         blackScore += ROOK_VAL + rookPST[sq ^ 56];
     }
 
-    // 5. Queens
     Bitboard wQueens = pieces[static_cast<int>(Piece::WhiteQueen)];
     while (wQueens) {
         int sq = __builtin_ctzll(wQueens);
@@ -1028,7 +988,6 @@ int Board::evaluate() const
         blackScore += QUEEN_VAL + queenPST[sq ^ 56];
     }
 
-    // 6. King
     Bitboard wKing = pieces[static_cast<int>(Piece::WhiteKing)];
     if (wKing) {
         int sq = __builtin_ctzll(wKing);
@@ -1081,9 +1040,7 @@ void Board::unmakeNullMove(const UndoState& undo)
     zobristKey = undo.zobristKey;
 }
 
-// ============================================================================
 // ALPHA-BETA SEARCH ENGINE
-// ============================================================================
 
 constexpr int MATE_SCORE = 30000;
 constexpr int INF_SCORE  = 100000;
@@ -1093,22 +1050,22 @@ int Board::quiescence(int alpha, int beta, int ply, std::uint64_t& nodesEvaluate
     if (checkTime(nodesEvaluated)) return 0;
     nodesEvaluated++;
 
-    // 1. Stand-Pat Evaluation (Baseline static score)
+    // Stand-Pat Evaluation (Baseline static score)
     int standPat = evaluate();
 
-    // 2. Stand-Pat Beta Cutoff (Fail-hard)
+    // Stand-Pat Beta Cutoff (Fail-hard)
     if (standPat >= beta)
     {
         return beta;
     }
 
-    // 3. Stand-Pat Alpha Update
+    // Stand-Pat Alpha Update
     if (standPat > alpha)
     {
         alpha = standPat;
     }
 
-    // 4. Generate Legal Captures Only
+    // Generate Legal Captures Only
     std::vector<Move> moves = generateLegalMoves();
     if (enableMoveOrdering) sortMoves(moves, 0, ply);
 
@@ -1145,7 +1102,7 @@ int Board::negamax(int depth, int ply, int alpha, int beta, std::uint64_t& nodes
     if (checkTime(nodesEvaluated)) return 0;
     nodesEvaluated++;
 
-    // 1. TT Probe
+    // TT Probe
     Move ttMove = 0;
     const TTEntry* entry = tt.probe(zobristKey);
     if (entry != nullptr)
@@ -1168,7 +1125,7 @@ int Board::negamax(int depth, int ply, int alpha, int beta, std::uint64_t& nodes
 
     bool inCheck = isKingInCheck(sideToMove);
 
-    // 2. Leaf nodes transition into Quiescence search for tactical stability
+    // Leaf nodes transition into Quiescence search for tactical stability
     if (depth == 0)
     {
         // Detect terminal nodes before quiescence
@@ -1181,7 +1138,7 @@ int Board::negamax(int depth, int ply, int alpha, int beta, std::uint64_t& nodes
         return quiescence(alpha, beta, ply, nodesEvaluated);
     }
 
-    // 3. Null Move Pruning (NMP)
+    // Null Move Pruning (NMP)
     if (enableNullMovePruning && allowNull && depth >= 3 && !inCheck && hasNonPawnMaterial(sideToMove))
     {
         UndoState undo;
@@ -1200,10 +1157,10 @@ int Board::negamax(int depth, int ply, int alpha, int beta, std::uint64_t& nodes
         }
     }
 
-    // 4. Generate legal moves
+    // Generate legal moves
     std::vector<Move> moves = generateLegalMoves();
 
-    // 5. Handle terminal checkmate & stalemate positions
+    // Handle terminal checkmate & stalemate positions
     if (moves.empty())
     {
         if (inCheck)
@@ -1220,7 +1177,7 @@ int Board::negamax(int depth, int ply, int alpha, int beta, std::uint64_t& nodes
 
     if (enableMoveOrdering) sortMoves(moves, ttMove, ply);
 
-    // 6. Negamax Search Loop with Alpha-Beta Pruning
+    // Negamax Search Loop with Alpha-Beta Pruning
     int originalAlpha = alpha;
     Move bestMove = moves[0];
 
@@ -1235,7 +1192,7 @@ int Board::negamax(int depth, int ply, int alpha, int beta, std::uint64_t& nodes
         bool isCapture = isMoveCapture(move);
         bool isPromotion = (getMoveFlags(move) >= FlagKnightProm);
 
-        // 6. Late Move Reductions (LMR)
+        // Late Move Reductions (LMR)
         if (enableLateMoveReductions && depth >= 3 && movesSearched >= 3 && !inCheck && !givesCheck && !isCapture && !isPromotion)
         {
             int R = 1;
