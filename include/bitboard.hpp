@@ -14,22 +14,18 @@ void printBoard(Bitboard board);
 // Global attack table initialization helper
 void initAllAttacks();
 
-// Knight Attacks
 void initKnightAttacks();
 Bitboard maskKnightAttacks(int square);
 Bitboard getKnightAttacks(int square);
 
-// King Attacks
 void initKingAttacks();
 Bitboard maskKingAttacks(int square);
 Bitboard getKingAttacks(int square);
 
-// Pawn Attacks (side: 0 = White, 1 = Black)
 void initPawnAttacks();
 Bitboard maskPawnAttacks(int side, int square);
 Bitboard getPawnAttacks(int side, int square);
 
-// Sliding Attacks (Occupancy-aware ray casting)
 Bitboard maskRookAttacks(int square, Bitboard occupancy);
 Bitboard maskBishopAttacks(int square, Bitboard occupancy);
 Bitboard getRookAttacks(int square, Bitboard occupancy);

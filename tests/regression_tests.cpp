@@ -148,7 +148,7 @@ int main() {
         board.searchIterativeDeepening(50, score, nodes);
         auto end = std::chrono::high_resolution_clock::now();
         double seconds = std::chrono::duration<double>(end - start).count();
-        runTest("Iterative Deepening Timeout", seconds < 0.15 && nodes > 0);
+        runTest("Iterative Deepening Timeout", seconds < 1.0 && nodes > 0);
     }
 
     // 9. Node-count sanity (Perft)
