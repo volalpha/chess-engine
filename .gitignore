@@ -1,0 +1,23 @@
+# Build artifacts
+build/
+
+# Compiled binaries
+*.o
+*.out
+*.exe
+chess_engine
+
+# Editor & IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cache/
+compile_commands.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+build_asan/
