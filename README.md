@@ -13,6 +13,7 @@ A C++20-based UCI chess engine developed with a focus on correctness, measurable
 ## Architecture
 
 - **State Representation:** 64-bit Bitboards for all piece types and occupancies. Moves are packed into a compact 16-bit integer format.
+- **Attack Generation:** Rook and bishop sliding attacks use precomputed Magic Bitboard lookup tables. Relevant blocker occupancy is masked for each square. A square-specific magic multiplier and shift produce the lookup index. Attack sets are precomputed for all relevant occupancy configurations. The previous ray-tracing implementation is retained internally as the reference implementation used for correctness validation. Collision detection verifies that the magic indexing is valid for every relevant occupancy configuration.
 - **Move Generation:** Pseudo-legal move generation with in-place `makeMove()` / `unmakeMove()` legality verification. An `UndoState` struct stores the previous state required to restore Zobrist keys, castling rights, en-passant state, and captured pieces in O(1) time.
 - **Search Core:** Recursively implemented Negamax bounded by Alpha-Beta fail-hard cutoffs, transitioning directly into a capturing-only Quiescence search at leaf nodes to resolve tactical instability.
 - **Interface:** UCI command handling with asynchronous search control and time-management interrupts.
@@ -90,6 +91,16 @@ The repository provides a standalone benchmarking executable designed to measure
 
 This executable launches a deterministic Depth 6 search from the starting position, allowing for strict, reproducible before/after baseline comparisons when testing low-level engine optimizations.
 
+The measured benchmark shows a clear improvement after introducing Magic Bitboards:
+
+| Metric | Before Magic Bitboards | After Magic Bitboards |
+|---|---:|---:|
+| Search depth | 6 | 6 |
+| Iterations | 10 | 10 |
+| Total nodes | 195,710 | 195,710 |
+| Nodes/sec | ~0.85M | ~1.12–1.14M |
+| Elapsed time | ~0.23 s | ~0.171–0.174 s |
+
 ## UCI / GUI Compatibility
 
 Because the engine natively speaks the Universal Chess Interface protocol, it can be connected directly to any standard UCI-compliant GUI (e.g., Arena, CuteChess, or BanksiaGUI) for tournament play or visual analysis.
@@ -129,10 +140,12 @@ Because the engine natively speaks the Universal Chess Interface protocol, it ca
 
 | Check | Result |
 |---|---|
-| Release build | Passed |
-| Regression suite | 16/16 passed |
-| ASan + UBSan build | Passed |
-| Sanitized regression suite | Passed |
+| Release build | Succeeds |
+| Regression suite | 16/16 tests passing |
+| Perft validation | Remains correct |
+| Magic Bitboard validation | Collision validation passes |
+| ASan + UBSan build | Passes with no reported issues |
+| Benchmark determinism | Deterministic at 195,710 nodes for this workload |
 | Strict warning check | Passed |
 
 ## Design Philosophy / Scope

@@ -1,5 +1,6 @@
 #include "bitboard.hpp"
 #include <iostream>
+#include <cstdlib>
 
 void setBit(Bitboard& board, int square)
 {
@@ -168,15 +169,13 @@ Bitboard getPawnAttacks(int side, int square)
     return pawnAttacks[side][square];
 }
 
-// Sliding Attacks Implementation (Occupancy-aware ray casting)
-
-Bitboard maskRookAttacks(int square, Bitboard occupancy)
+// Reference ray-tracing used only during magic table initialization
+static Bitboard slowRookAttacks(int square, Bitboard occupancy)
 {
     Bitboard attacks = 0ULL;
     int rank = square / 8;
     int file = square % 8;
 
-    // 4 orthogonal directions: Up (+r), Down (-r), Right (+f), Left (-f)
     constexpr int dr[4] = { 1, -1,  0,  0 };
     constexpr int df[4] = { 0,  0,  1, -1 };
 
@@ -189,11 +188,8 @@ Bitboard maskRookAttacks(int square, Bitboard occupancy)
         {
             int targetSquare = r * 8 + f;
             setBit(attacks, targetSquare);
-
-            // Ray stops upon hitting a blocker (blocker IS attacked, behind is NOT)
             if (getBit(occupancy, targetSquare))
                 break;
-
             r += dr[i];
             f += df[i];
         }
@@ -202,13 +198,12 @@ Bitboard maskRookAttacks(int square, Bitboard occupancy)
     return attacks;
 }
 
-Bitboard maskBishopAttacks(int square, Bitboard occupancy)
+static Bitboard slowBishopAttacks(int square, Bitboard occupancy)
 {
     Bitboard attacks = 0ULL;
     int rank = square / 8;
     int file = square % 8;
 
-    // 4 diagonal directions: Up-Right, Up-Left, Down-Right, Down-Left
     constexpr int dr[4] = { 1,  1, -1, -1 };
     constexpr int df[4] = { 1, -1,  1, -1 };
 
@@ -221,11 +216,8 @@ Bitboard maskBishopAttacks(int square, Bitboard occupancy)
         {
             int targetSquare = r * 8 + f;
             setBit(attacks, targetSquare);
-
-            // Ray stops upon hitting a blocker
             if (getBit(occupancy, targetSquare))
                 break;
-
             r += dr[i];
             f += df[i];
         }
@@ -234,14 +226,182 @@ Bitboard maskBishopAttacks(int square, Bitboard occupancy)
     return attacks;
 }
 
+// Relevance mask: squares a blocker can occupy that affect the attack rays.
+// Edge squares are excluded because a blocker on the board edge does not
+// change the attack set (the ray terminates there regardless).
+static Bitboard rookRelevanceMask(int square)
+{
+    Bitboard mask = 0ULL;
+    int rank = square / 8;
+    int file = square % 8;
+
+    for (int r = rank + 1; r < 7; ++r) mask |= (1ULL << (r * 8 + file));
+    for (int r = rank - 1; r > 0; --r) mask |= (1ULL << (r * 8 + file));
+    for (int f = file + 1; f < 7; ++f) mask |= (1ULL << (rank * 8 + f));
+    for (int f = file - 1; f > 0; --f) mask |= (1ULL << (rank * 8 + f));
+
+    return mask;
+}
+
+static Bitboard bishopRelevanceMask(int square)
+{
+    Bitboard mask = 0ULL;
+    int rank = square / 8;
+    int file = square % 8;
+
+    for (int r = rank + 1, f = file + 1; r < 7 && f < 7; ++r, ++f) mask |= (1ULL << (r * 8 + f));
+    for (int r = rank + 1, f = file - 1; r < 7 && f > 0; ++r, --f) mask |= (1ULL << (r * 8 + f));
+    for (int r = rank - 1, f = file + 1; r > 0 && f < 7; --r, ++f) mask |= (1ULL << (r * 8 + f));
+    for (int r = rank - 1, f = file - 1; r > 0 && f > 0; --r, --f) mask |= (1ULL << (r * 8 + f));
+
+    return mask;
+}
+
+static int popcount(Bitboard b) { return __builtin_popcountll(b); }
+
+static Bitboard rookMagics[64];
+static Bitboard bishopMagics[64];
+
+static uint64_t prngState = 1070372;
+static uint64_t randomUInt64()
+{
+    prngState ^= prngState >> 12;
+    prngState ^= prngState << 25;
+    prngState ^= prngState >> 27;
+    return prngState * 2685821657736338717ULL;
+}
+
+static uint64_t randomUInt64FewBits()
+{
+    return randomUInt64() & randomUInt64() & randomUInt64();
+}
+
+static Bitboard findMagic(int sq, int shiftBits, bool isRook)
+{
+    Bitboard mask = isRook ? rookRelevanceMask(sq) : bishopRelevanceMask(sq);
+    int numSubsets = 1 << popcount(mask);
+
+    Bitboard subsets[4096];
+    Bitboard attacks[4096];
+
+    Bitboard subset = 0;
+    int i = 0;
+    do {
+        subsets[i] = subset;
+        attacks[i] = isRook ? slowRookAttacks(sq, subset) : slowBishopAttacks(sq, subset);
+        i++;
+        subset = (subset - mask) & mask;
+    } while (subset);
+
+    Bitboard table[4096];
+    for (int attempt = 0; attempt < 100000000; ++attempt)
+    {
+        Bitboard magic = randomUInt64FewBits();
+        if (popcount((mask * magic) & 0xFF00000000000000ULL) < 6)
+            continue;
+
+        for (int j = 0; j < 4096; ++j) table[j] = 0ULL;
+
+        bool failed = false;
+        for (int j = 0; j < numSubsets; ++j)
+        {
+            int index = static_cast<int>((subsets[j] * magic) >> (64 - shiftBits));
+            if (table[index] == 0ULL)
+            {
+                table[index] = attacks[j];
+            }
+            else if (table[index] != attacks[j])
+            {
+                failed = true;
+                break;
+            }
+        }
+
+        if (!failed)
+            return magic;
+    }
+    return 0ULL;
+}
+
+static Bitboard rookMasks[64];
+static Bitboard bishopMasks[64];
+static int rookShifts[64];
+static int bishopShifts[64];
+
+// Maximum entries per square: rook 4096 (12 bits), bishop 512 (9 bits)
+static Bitboard rookTable[64][4096];
+static Bitboard bishopTable[64][512];
+
+static void initSlidingAttacks()
+{
+    for (int sq = 0; sq < 64; ++sq)
+    {
+        rookMasks[sq] = rookRelevanceMask(sq);
+        rookShifts[sq] = 64 - 12; // 12-bit table size (4096)
+
+        rookMagics[sq] = findMagic(sq, 12, true);
+        if (rookMagics[sq] == 0ULL)
+        {
+            std::cerr << "Failed to find rook magic for sq=" << sq << "\n";
+            std::abort();
+        }
+
+        // Enumerate all subsets of the relevance mask to populate the table
+        Bitboard mask = rookMasks[sq];
+        Bitboard subset = 0;
+        do {
+            int index = static_cast<int>((subset * rookMagics[sq]) >> rookShifts[sq]);
+            rookTable[sq][index] = slowRookAttacks(sq, subset);
+            subset = (subset - mask) & mask;
+        } while (subset);
+    }
+
+    for (int sq = 0; sq < 64; ++sq)
+    {
+        bishopMasks[sq] = bishopRelevanceMask(sq);
+        bishopShifts[sq] = 64 - 9; // 9-bit table size (512)
+
+        bishopMagics[sq] = findMagic(sq, 9, false);
+        if (bishopMagics[sq] == 0ULL)
+        {
+            std::cerr << "Failed to find bishop magic for sq=" << sq << "\n";
+            std::abort();
+        }
+
+        // Enumerate all subsets of the relevance mask to populate the table
+        Bitboard mask = bishopMasks[sq];
+        Bitboard subset = 0;
+        do {
+            int index = static_cast<int>((subset * bishopMagics[sq]) >> bishopShifts[sq]);
+            bishopTable[sq][index] = slowBishopAttacks(sq, subset);
+            subset = (subset - mask) & mask;
+        } while (subset);
+    }
+}
+
+// Retained for external callers that need raw ray-tracing (header-declared)
+Bitboard maskRookAttacks(int square, Bitboard occupancy)
+{
+    return slowRookAttacks(square, occupancy);
+}
+
+Bitboard maskBishopAttacks(int square, Bitboard occupancy)
+{
+    return slowBishopAttacks(square, occupancy);
+}
+
 Bitboard getRookAttacks(int square, Bitboard occupancy)
 {
-    return maskRookAttacks(square, occupancy);
+    Bitboard blockers = occupancy & rookMasks[square];
+    int index = static_cast<int>((blockers * rookMagics[square]) >> rookShifts[square]);
+    return rookTable[square][index];
 }
 
 Bitboard getBishopAttacks(int square, Bitboard occupancy)
 {
-    return maskBishopAttacks(square, occupancy);
+    Bitboard blockers = occupancy & bishopMasks[square];
+    int index = static_cast<int>((blockers * bishopMagics[square]) >> bishopShifts[square]);
+    return bishopTable[square][index];
 }
 
 Bitboard getQueenAttacks(int square, Bitboard occupancy)
@@ -302,4 +462,5 @@ void initAllAttacks()
     initKnightAttacks();
     initKingAttacks();
     initPawnAttacks();
+    initSlidingAttacks();
 }
